@@ -20,8 +20,8 @@ typedef struct {
     int* chunk_b;
 } merge_params;
 
-int check_sorted(int* data, int n) {
-    for (int i = 0; i < n-1; i++) {
+int check_sorted(int* data, size_t n) {
+    for (size_t i = 0; i < n-1; i++) {
         if (!(data[i+1] > data[i])) return 0;
     }
 
@@ -53,7 +53,7 @@ void* sort(void* ptr) {
         printf("Thread %d: Sorting %d elements.\n", params->id, params->size);
 
     int* base = params->base;
-    int n_elements = params->size;
+    size_t n_elements = params->size;
     size_t size = sizeof(int);
 
     qsort(base, n_elements, size, comp);
@@ -62,11 +62,11 @@ void* sort(void* ptr) {
 void* merge(void* ptr) {
     merge_params* params = (merge_params*)ptr;
 
-    int size_a = params->size_a;
-    int size_b = params->size_b;
-    int merged[size_a+size_b];
+    size_t size_a = params->size_a;
+    size_t size_b = params->size_b;
+    int* merged = malloc((size_a+size_b)*sizeof(int));
 
-    for (int i = 0, j = 0, k = 0; k < (size_a + size_b); k++) {
+    for (size_t i = 0, j = 0, k = 0; k < (size_a + size_b); k++) {
         if (j >= size_b || (i < size_a && params->chunk_a[i] < params->chunk_b[j])) {
             merged[k] = params->chunk_a[i++];
         } else {
@@ -74,7 +74,7 @@ void* merge(void* ptr) {
         }
     }
 
-    for (int i = 0; i < (size_a+size_b); i++) {
+    for (size_t i = 0; i < (size_a+size_b); i++) {
         params->chunk_a[i] = merged[i];
     }
 
@@ -89,25 +89,28 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    int n = atoi(argv[1]);
+    size_t n = atoi(argv[1]);
     int k = atoi(argv[2]);
 
     if (argc > 3 && !strcmp(argv[3], "silent")) {
         silent = 1;
     }
 
-    int data[n];
-    for (int i = 0; i < n; i++) data[i] = i;
+    int* data = malloc(n*sizeof(int));
+    for (size_t i = 0; i < n; i++) data[i] = i;
     shuffle(data, n);
 
     // sorting splits
-    int last_split_size = n/k + n%k;
+    size_t last_split_size = n/k + n%k;
 
-    int size = n/k;
+    size_t size = n/k;
     pthread_t threads[k];
     sort_params params[k];
 
-    clock_t start = clock();
+    struct timespec sort_start, sort_finish;
+    double sort_elapsed;
+
+    clock_gettime(CLOCK_MONOTONIC, &sort_start);
 
     for (int i = 0; i < k; i++) {
         if (i == (k-1) && k % 2) {
@@ -115,14 +118,24 @@ int main(int argc, char** argv) {
         } else {
             params[i] = (sort_params){&data[i*size], size, i};
         }
-        pthread_create(threads + i, NULL, sort, (void*)(params + i));
+        pthread_create(threads+i, NULL, sort, (void*)(params + i));
     }
 
     for (int i = 0; i < k; i++) {
         pthread_join(threads[i], NULL);
     }
 
-    // merging splits
+    clock_gettime(CLOCK_MONOTONIC, &sort_finish);
+
+    sort_elapsed = (sort_finish.tv_sec - sort_start.tv_sec);
+    sort_elapsed += (sort_finish.tv_nsec - sort_start.tv_nsec) / 1000000000.0;
+
+    // Merge
+
+    struct timespec merge_start, merge_finish;
+    double merge_elapsed;
+
+    clock_gettime(CLOCK_MONOTONIC, &merge_start);
     while (k != 1) {
 
         merge_params m_params[k];
@@ -131,7 +144,7 @@ int main(int argc, char** argv) {
             int* chunk_a = &data[i*size];
             int* chunk_b = &data[(i+1)*size];
 
-            int size_b = i == k-2 ? last_split_size : size;
+            size_t size_b = i == k-2 ? last_split_size : size;
             m_params[i] = (merge_params){ size, size_b, chunk_a, chunk_b };
 
             if (i == k-2) {
@@ -150,9 +163,15 @@ int main(int argc, char** argv) {
 
     }
 
-    clock_t end = clock();
-    float ms = 1000 * (float)(end - start) / CLOCKS_PER_SEC;
+    clock_gettime(CLOCK_MONOTONIC, &merge_finish);
 
-    if (check_sorted(data, n)) printf("%.0f\n", ms);
+    merge_elapsed = (merge_finish.tv_sec - merge_start.tv_sec);
+    merge_elapsed += (merge_finish.tv_nsec - merge_start.tv_nsec) / 1000000000.0;
+
+    if (check_sorted(data, n)) {
+        printf("Sort: %.4f\n", sort_elapsed);
+        printf("Merge: %.4f\n", merge_elapsed);
+        printf("Total: %.4f\n", sort_elapsed + merge_elapsed);
+    }
     else printf("Not Sorted :(\n");
 }

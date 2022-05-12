@@ -113,7 +113,7 @@ int main(int argc, char** argv) {
     clock_gettime(CLOCK_MONOTONIC, &sort_start);
 
     for (int i = 0; i < k; i++) {
-        if (i == (k-1) && k % 2) {
+        if (i == (k-1) && n % k) {
             params[i] = (sort_params){&data[i*size], size + (n % k), i};
         } else {
             params[i] = (sort_params){&data[i*size], size, i};
